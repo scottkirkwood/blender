@@ -1,7 +1,8 @@
 import bpy
+
+import asyncio
+import os
 import sys
-sys.path.append("/usr/lib/python3/dist-packages")
-from PIL import Image
 
 
 SIZE = 2.0
@@ -15,23 +16,30 @@ def delete_all_duplicates(context, tokeep):
     bpy.ops.object.delete(confirm=False)
 
 
-def merge_horizontally(fnames, output):
-    images = [Image.open(x) for x in fnames]
-    widths, heights = zip(*(i.size for i in images))
-    
-    total_width = sum(widths)
-    max_height = max(heights)
-    
-    new_image = Image.new('RGBA', (total_width, total_height))
-    
-    x_offset = 0
-    for im in images:
-        new_im.paste(im, (x_offset, 0))
-        x_offset += im.size[0]
-    
-    new_im.save(output)
-    
+def render(scene, index):
+    scene.render.filepath = '/tmp/{}-dice.png'.format(index)
+    bpy.ops.render.render(write_still = 1)
+    return scene.render.filepath
 
+
+async def merge_images(glob, output):
+    abspath = bpy.path.abspath("//")
+    proc = await asyncio.create_subprocess_exec(
+        os.path.join(abspath, 'mergeimages'),
+        '-o', output,
+        glob,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE)
+
+    stdout, stderr = await proc.communicate()
+
+    if proc.returncode != 0:
+        if stdout:
+            print(f'[stdout]\n{stdout.decode()}')
+        if stderr:
+            print(f'[stderr]\n{stderr.decode()}')
+
+    
 def main(context):
     scene = context.scene
     die = scene.objects['die']
@@ -45,13 +53,11 @@ def main(context):
                 OBJECT_OT_duplicate={"linked":False, "mode":'TRANSLATION'},
                 TRANSFORM_OT_translate={"value":(SIZE*x, 0, SIZE*z)})
             index += 1
-            scene.render.filepath = '/tmp/{}-dice.png'.format(index)
-            filenames.append(scene.render.filepath)
-            bpy.ops.render.render(write_still = 1)
+            filenames.append(render(scene, index))
             
     delete_all_duplicates(context, die)
-    print('Rendered, look in /tmp/?-dice.png')
-    merge_horizontally(filenames, "/tmp/alldice.png")
+    asyncio.run(merge_images('/tmp/?-dice.png', '/tmp/output-dice.png'))
+    print('Rendered, look in /tmp/output-dice.png')
 
 
 class SimpleOperator(bpy.types.Operator):
